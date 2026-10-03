@@ -19,8 +19,17 @@ function New-Control($type, $text, $x, $y, $w, $h) {
   $c
 }
 
-$form = New-Control Form 'Dual-Mode Hub' 0 0 480 470
+$form = New-Control Form 'Dual-Mode Hub' 0 0 480 545
 $form.FormBorderStyle = 'FixedSingle'; $form.MaximizeBox = $false; $form.StartPosition = 'CenterScreen'
+# Same monitor icon as the Start menu shortcut (shell32.dll, index 15).
+Add-Type @'
+using System; using System.Runtime.InteropServices;
+public static class Ico { [DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern int ExtractIconEx(string f, int i, IntPtr[] large, IntPtr[] small, int n); }
+'@
+$icon = New-Object IntPtr[] 1
+if ([Ico]::ExtractIconEx("$env:SystemRoot\System32\shell32.dll", 15, $icon, $null, 1) -gt 0) {
+  $form.Icon = [System.Drawing.Icon]::FromHandle($icon[0])
+}
 
 # ---- Monitor -----------------------------------------------------------------
 $lblMode = New-Control Label '' 16 14 440 26
@@ -110,6 +119,37 @@ $chkAuto.Add_Click({
   if ($chkAuto.Checked) { Install-Autostart } else { Remove-Item $AutostartLink -ErrorAction SilentlyContinue }
 })
 
+# ---- LG Switch shortcut ------------------------------------------------------
+$grpKey = New-Control GroupBox 'LG Switch Dual-Mode shortcut' 12 428 440 66
+$txtKey = New-Control TextBox (Format-Hotkey (Get-Hotkey)) 10 26 150 24
+$txtKey.ReadOnly = $true; $txtKey.BackColor = 'Window'; $txtKey.TextAlign = 'Center'; $txtKey.Cursor = 'Hand'
+$lblKey = New-Control Label 'Click the box, then press the shortcut you set in LG Switch.' 170 22 260 34
+$grpKey.Controls.AddRange(@($txtKey, $lblKey))
+
+$Keys = [System.Windows.Forms.Keys]
+# KeyCode -> SendKeys name for keys that aren't letters, digits or F-keys.
+# PageUp/Prior and PageDown/Next are the same enum value, so both names are listed.
+$specialKeys = @{ Home = '{HOME}'; End = '{END}'; Insert = '{INS}'; Delete = '{DEL}'
+  PageUp = '{PGUP}'; Prior = '{PGUP}'; PageDown = '{PGDN}'; Next = '{PGDN}'
+  Up = '{UP}'; Down = '{DOWN}'; Left = '{LEFT}'; Right = '{RIGHT}' }
+
+$txtKey.Add_KeyDown({
+  param($s, $e)
+  $e.SuppressKeyPress = $true
+  $k = $e.KeyCode
+  if ($k -in $Keys::ControlKey, $Keys::ShiftKey, $Keys::Menu, $Keys::LWin, $Keys::RWin) { return }  # wait for the main key
+  if (-not ($e.Control -or $e.Alt)) { $lblKey.Text = 'Use Ctrl and/or Alt (plus Shift if you like) with a key.'; return }
+  $key = if ($k -ge $Keys::A -and $k -le $Keys::Z) { "$k".ToLower() }
+         elseif ($k -ge $Keys::D0 -and $k -le $Keys::D9) { "$k".Substring(1) }
+         elseif ("$k" -match '^F\d+$') { "{$k}" }
+         else { $specialKeys["$k"] }
+  if (-not $key) { $lblKey.Text = "The $k key isn't supported. Use a letter, digit or F-key."; return }
+  $mods = $(if ($e.Control) { '^' }) + $(if ($e.Alt) { '%' }) + $(if ($e.Shift) { '+' })
+  Set-Hotkey ($mods + $key)
+  $txtKey.Text = Format-Hotkey ($mods + $key)
+  $lblKey.Text = 'Saved. Make sure LG Switch uses the same shortcut.'
+})
+
 function Update-Status {
   $id = [Disp]::Find($MonitorPrefix)
   $lblMode.Text = if (-not $id) { 'LG monitor not found' }
@@ -122,7 +162,7 @@ function Update-Status {
   $chkAuto.Checked = Test-Path $AutostartLink
 }
 
-$form.Controls.AddRange(@($lblMode, $btnOn, $btnOff, $grpGames, $grpWatch))
+$form.Controls.AddRange(@($lblMode, $btnOn, $btnOff, $grpGames, $grpWatch, $grpKey))
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 2000
 $timer.Add_Tick({ Update-Status })

@@ -17,9 +17,9 @@ Built and tested on the **LG 32GX850A** under Windows 11.
 
 ## Setup
 
-1. In LG Switch, assign a shortcut to Dual-Mode and enable "start with Windows".
-2. If your shortcut isn't Alt+Shift+D, change `$Hotkey` at the top of `monitor_mode.ps1` (SendKeys notation: `^` Ctrl, `%` Alt, `+` Shift, e.g. `'^%{F10}'` = Ctrl+Alt+F10).
-3. Double-click **`Hub.cmd`**, click **Start** under Watcher and tick **Start watcher with Windows**.
+1. In LG Switch, assign a shortcut to Dual-Mode and enable "start with Windows". Use Ctrl and/or Alt (optionally with Shift) plus a letter, digit or F-key.
+2. Double-click **`Hub.cmd`**. Under **LG Switch Dual-Mode shortcut**, click the box and press the same shortcut. It's saved to `settings.json`.
+3. Click **Start** under Watcher and tick **Start watcher with Windows**.
 
 ## Usage
 
@@ -29,6 +29,7 @@ Built and tested on the **LG 32GX850A** under Windows 11.
 - **Add .exe...**: pick the game's executable
 - **Remove**: removes the selected game
 - Start/stop the watcher, toggle autostart and open the log
+- Set the LG Switch shortcut (takes effect immediately, even for a running watcher)
 
 Changes to the game list apply immediately, so you don't need to restart the watcher.
 
@@ -65,7 +66,7 @@ Then set `$MonitorPrefix` (the part both IDs share) and `$DualModeId` (the Dual-
 
 ## Troubleshooting
 
-- **It doesn't switch:** check that LG Switch is running and that its shortcut matches `$Hotkey`. Then look at `monitor_mode.log` (Hub → Open log), which records what was detected, what was sent and which window was in the foreground.
+- **It doesn't switch:** check that LG Switch is running and that its shortcut matches the one in the hub. Then look at `monitor_mode.log` (Hub → Open log), which records what was detected, what was sent and which window was in the foreground.
 - **Your keyboard layout changes:** Alt+Shift is also Windows' shortcut for switching input languages. Use a Ctrl+Alt shortcut instead.
 
 ## Anti-cheat

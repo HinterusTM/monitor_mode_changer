@@ -20,9 +20,9 @@ param(
 )
 
 # ---- Settings ---------------------------------------------------------------
-# The Dual-Mode shortcut you set in LG Switch, in SendKeys notation:
-#   ^ = Ctrl   % = Alt   + = Shift      e.g. '^%d' = Ctrl+Alt+D,  '^%{F10}' = Ctrl+Alt+F10
-$Hotkey       = '%+d'                                       # Alt+Shift+D
+# Default for the Dual-Mode shortcut set in LG Switch; change it in the hub (saved to settings.json).
+# SendKeys notation:  ^ = Ctrl   % = Alt   + = Shift      e.g. '^%{F10}' = Ctrl+Alt+F10
+$DefaultHotkey = '%+d'                                      # Alt+Shift+D
 # The LG reports a different hardware id per mode: GSM7856 = 4K, GSM7859 = Dual-Mode.
 $MonitorPrefix = 'GSM785'
 $DualModeId    = 'GSM7859'
@@ -33,6 +33,7 @@ $ScriptFile    = $MyInvocation.MyCommand.Path
 $Root          = Split-Path $ScriptFile
 $GamesFile     = Join-Path $Root 'games.json'
 $LogFile       = Join-Path $Root 'monitor_mode.log'
+$SettingsFile  = Join-Path $Root 'settings.json'
 $AutostartLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Dual-Mode watcher.lnk'
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -95,6 +96,26 @@ function Save-Games($games) {
   ConvertTo-Json -InputObject @($games | Where-Object { $_ }) -Depth 5 | Set-Content -Encoding utf8 $GamesFile
 }
 
+function Get-Hotkey {
+  if (Test-Path $SettingsFile) {
+    $h = (Get-Content -Raw $SettingsFile | ConvertFrom-Json).hotkey
+    if ($h) { return $h }
+  }
+  $DefaultHotkey
+}
+
+function Set-Hotkey([string]$keys) {
+  @{ hotkey = $keys } | ConvertTo-Json | Set-Content -Encoding utf8 $SettingsFile
+}
+
+# '%+d' -> 'Alt+Shift+D', '^%{F10}' -> 'Ctrl+Alt+F10'
+function Format-Hotkey([string]$keys) {
+  $mods = @{ '^' = 'Ctrl'; '%' = 'Alt'; '+' = 'Shift' }
+  $parts = @(); $i = 0
+  while ($i -lt $keys.Length -and $mods.ContainsKey([string]$keys[$i])) { $parts += $mods[[string]$keys[$i]]; $i++ }
+  ($parts + $keys.Substring($i).Trim('{}').ToUpper()) -join '+'
+}
+
 function Install-Autostart {
   $s = (New-Object -ComObject WScript.Shell).CreateShortcut($AutostartLink)
   $s.TargetPath = 'powershell.exe'
@@ -106,11 +127,13 @@ function Install-Autostart {
 function Set-DualMode([bool]$On) {
   $label = if ($On) { 'ON (1080p 330 Hz)' } else { 'OFF (4K 165 Hz)' }
   if ((Test-DualMode) -eq $On) { Log "Dual-Mode already $label"; return }
+  # Read on every switch so a shortcut changed in the hub applies without restarting the watcher.
+  $hotkey = Get-Hotkey
   # A key press sent while the game is starting can get lost, so retry a few times.
   for ($try = 1; $try -le 3; $try++) {
     $fg = (Get-Process -Id ([Fg]::Pid()) -ErrorAction SilentlyContinue).Name
-    Log "Sending $Hotkey for $label (try $try, foreground: $fg)"
-    [System.Windows.Forms.SendKeys]::SendWait($Hotkey)
+    Log "Sending $(Format-Hotkey $hotkey) for $label (try $try, foreground: $fg)"
+    [System.Windows.Forms.SendKeys]::SendWait($hotkey)
     # The monitor re-syncs and reconnects with its new hardware id; wait for that to happen.
     # A switch can take ~10 s; wait well past that so a retry never toggles it back.
     for ($i = 0; $i -lt 40; $i++) {
@@ -118,7 +141,7 @@ function Set-DualMode([bool]$On) {
       if ((Test-DualMode -AllowMissing) -eq $On) { Log "Dual-Mode $label"; return }
     }
   }
-  Log "WARNING: Dual-Mode did not switch. Is LG Switch running, and is its Dual-Mode shortcut set to $Hotkey?"
+  Log "WARNING: Dual-Mode did not switch. Is LG Switch running, and is its Dual-Mode shortcut set to $(Format-Hotkey $hotkey)?"
 }
 
 # Dot-sourced (by hub.ps1): only define the functions above.
