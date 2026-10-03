@@ -9,8 +9,9 @@
     .\monitor_mode.ps1 -Mode On        # 1080p 330 Hz
     .\monitor_mode.ps1 -Mode Off       # 4K 165 Hz
     .\monitor_mode.ps1 -Mode Toggle
-    .\monitor_mode.ps1 -Watch          # ON while Valorant runs, OFF when it closes
+    .\monitor_mode.ps1 -Watch          # ON while a game from games.json runs, OFF when it closes
     .\monitor_mode.ps1 -InstallAutostart   # run -Watch hidden at every login
+  hub.ps1 is a window for all of this, including editing the game list.
 #>
 param(
   [ValidateSet('On', 'Off', 'Toggle')] [string]$Mode,
@@ -25,9 +26,14 @@ $Hotkey       = '%+d'                                       # Alt+Shift+D
 # The LG reports a different hardware id per mode: GSM7856 = 4K, GSM7859 = Dual-Mode.
 $MonitorPrefix = 'GSM785'
 $DualModeId    = 'GSM7859'
-$GameProcess  = 'VALORANT-Win64-Shipping', 'VALORANT'      # game + its launcher stub
 $PollSeconds  = 3
 # -----------------------------------------------------------------------------
+
+$ScriptFile    = $MyInvocation.MyCommand.Path
+$Root          = Split-Path $ScriptFile
+$GamesFile     = Join-Path $Root 'games.json'
+$LogFile       = Join-Path $Root 'monitor_mode.log'
+$AutostartLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'Dual-Mode watcher.lnk'
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
@@ -72,7 +78,29 @@ function Test-DualMode([switch]$AllowMissing) {
 # Prints and appends to monitor_mode.log, since the watcher runs without a window.
 function Log([string]$msg) {
   Write-Host $msg
-  "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $msg" | Add-Content -Encoding utf8 (Join-Path $PSScriptRoot 'monitor_mode.log')
+  "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $msg" | Add-Content -Encoding utf8 $LogFile
+}
+
+# games.json: [{ "name": "VALORANT", "processes": ["VALORANT-Win64-Shipping", "VALORANT"] }, ...]
+# Process names are without ".exe". A launcher listed alongside the game makes the switch
+# happen before the game goes fullscreen.
+function Get-Games {
+  if (-not (Test-Path $GamesFile)) {
+    Save-Games @([pscustomobject]@{ name = 'VALORANT'; processes = @('VALORANT-Win64-Shipping', 'VALORANT') })
+  }
+  @(Get-Content -Raw $GamesFile | ConvertFrom-Json | ForEach-Object { $_ })
+}
+
+function Save-Games($games) {
+  ConvertTo-Json -InputObject @($games | Where-Object { $_ }) -Depth 5 | Set-Content -Encoding utf8 $GamesFile
+}
+
+function Install-Autostart {
+  $s = (New-Object -ComObject WScript.Shell).CreateShortcut($AutostartLink)
+  $s.TargetPath = 'powershell.exe'
+  $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptFile`" -Watch"
+  $s.WindowStyle = 7
+  $s.Save()
 }
 
 function Set-DualMode([bool]$On) {
@@ -93,14 +121,12 @@ function Set-DualMode([bool]$On) {
   Log "WARNING: Dual-Mode did not switch. Is LG Switch running, and is its Dual-Mode shortcut set to $Hotkey?"
 }
 
+# Dot-sourced (by hub.ps1): only define the functions above.
+if ($MyInvocation.InvocationName -eq '.') { return }
+
 if ($InstallAutostart) {
-  $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Valorant Dual-Mode.lnk'
-  $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-  $s.TargetPath = 'powershell.exe'
-  $s.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Watch"
-  $s.WindowStyle = 7
-  $s.Save()
-  Write-Host "Autostart installed: $lnk"
+  Install-Autostart
+  Write-Host "Autostart installed: $AutostartLink"
   return
 }
 
@@ -114,13 +140,17 @@ if ($Mode) {
 }
 
 if ($Watch) {
-  Write-Host "Watching for Valorant (Ctrl+C to stop)..."
+  Write-Host "Watching for games in $GamesFile (Ctrl+C to stop)..."
   $wasRunning = $false
   while ($true) {
-    $running = [bool](Get-Process -Name $GameProcess -ErrorAction SilentlyContinue)
+    # Re-read every poll so games added or removed in the hub apply right away.
+    $names = @(Get-Games | ForEach-Object { $_.processes })
+    # Guard: Get-Process with no names would return every process.
+    $game = if ($names) { Get-Process -Name $names -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    $running = [bool]$game
     # Only act on start/stop, so a manual switch mid-session is left alone.
     if ($running -ne $wasRunning) {
-      Log "Valorant $(if ($running) { 'started' } else { 'closed' })"
+      Log $(if ($running) { "$($game.Name) started" } else { 'Game closed' })
       try { Set-DualMode $running } catch { Log "ERROR: $_" }
       $wasRunning = $running
     }
@@ -128,4 +158,4 @@ if ($Watch) {
   }
 }
 
-Get-Help $PSCommandPath
+Get-Help $ScriptFile

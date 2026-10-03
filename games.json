@@ -1,0 +1,9 @@
+﻿[
+    {
+        "name":  "VALORANT",
+        "processes":  [
+                          "VALORANT-Win64-Shipping",
+                          "VALORANT"
+                      ]
+    }
+]
